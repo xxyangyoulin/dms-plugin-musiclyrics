@@ -13,6 +13,8 @@ PluginComponent {
     property string navidromeUrl: pluginData.navidromeUrl ?? ""
     property string navidromeUser: pluginData.navidromeUser ?? ""
     property string navidromePassword: pluginData.navidromePassword ?? ""
+    property string lrcApiUrl: pluginData.lrcApiUrl ?? "http://127.0.0.1:28883"
+    property string lrcApiAuth: pluginData.lrcApiAuth ?? "api"
     property bool cachingEnabled: pluginData.cachingEnabled ?? true
 
     readonly property MprisPlayer activePlayer: MprisController.activePlayer
@@ -22,8 +24,8 @@ PluginComponent {
     // Enum namespaces
     // -------------------------------------------------------------------------
 
-    // Chip-visible statuses for navidromeStatus, lrclibStatus, and cacheStatus.
-    // Values are globally unique so all three properties share one _chipMeta map.
+    // Chip-visible statuses for source status properties.
+    // Values are globally unique so all source status properties share one _chipMeta map.
     QtObject {
         id: status
         readonly property int none: 0
@@ -56,6 +58,7 @@ PluginComponent {
         readonly property int lrclib: 2
         readonly property int cache: 3
         readonly property int musixmatch: 4
+        readonly property int lrcApi: 5
     }
 
     // -------------------------------------------------------------------------
@@ -71,6 +74,7 @@ PluginComponent {
 
     // Chip status properties
     property int navidromeStatus: status.none
+    property int lrcApiStatus: status.none
     property int lrclibStatus: status.none
     property int musixmatchStatus: status.none
     property int cacheStatus: status.none
@@ -98,12 +102,17 @@ PluginComponent {
     }
 
     property bool _configValid: navidromeUrl !== "" && navidromeUser !== "" && navidromePassword !== ""
+    property bool _lrcApiConfigured: lrcApiUrl !== ""
 
     on_ConfigValidChanged: {
         console.info("[MusicLyrics] Navidrome configured: " + (_configValid ? "yes (" + navidromeUrl + ")" : "no"));
         if (activePlayer && currentTitle)
             fetchDebounceTimer.restart();
     }
+    onLrcApiUrlChanged: if (activePlayer && currentTitle)
+        fetchDebounceTimer.restart()
+    onLrcApiAuthChanged: if (activePlayer && currentTitle)
+        fetchDebounceTimer.restart()
 
     // Debounce timer — avoids double-fetch when title and artist change simultaneously
     Timer {
@@ -125,11 +134,17 @@ PluginComponent {
         lyricsLines = [];
         currentLineIndex = -1;
         navidromeStatus = status.none;
+        lrcApiStatus = status.none;
         lrclibStatus = status.none;
         musixmatchStatus = status.none;
         cacheStatus = status.none;
         lyricStatus = lyricState.loading;
         lyricSource = lyricSrc.none;
+    }
+
+    function _setLrcApiNotFound(lrcApiStatusVal) {
+        lrcApiStatus = lrcApiStatusVal;
+        _fetchFromMusixmatch(_lastFetchedTrack, _lastFetchedArtist);
     }
 
     // Sets the "no synced lyrics" state, used by musixmatch handlers
@@ -294,7 +309,7 @@ PluginComponent {
             } else {
                 navidromeStatus = status.skippedConfig;
                 console.info("[MusicLyrics] Navidrome: skipped (not configured)");
-                _fetchFromMusixmatch(capturedTitle, capturedArtist);
+                _fetchFromLrcApi(capturedTitle, capturedArtist);
             }
         }
 
@@ -309,6 +324,7 @@ PluginComponent {
                     root.lyricSource = cached.source > 0 ? cached.source : lyricSrc.cache;
                     root.cacheStatus = status.cacheHit;
                     root.navidromeStatus = status.skippedFound;
+                    root.lrcApiStatus = status.skippedFound;
                     root.lrclibStatus = status.skippedFound;
                     root.musixmatchStatus = status.skippedFound;
                     console.info("[MusicLyrics] ✓ Cache: lyrics loaded for \"" + capturedTitle + "\" (" + cached.lines.length + " lines)");
@@ -429,7 +445,7 @@ PluginComponent {
             if (rawData.length === 0) {
                 root.navidromeStatus = status.error;
                 console.warn("[MusicLyrics] Navidrome: empty search response (HTTP " + httpStatus + ")");
-                root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                root._fetchFromLrcApi(expectedTitle, expectedArtist);
                 return;
             }
             try {
@@ -438,7 +454,7 @@ PluginComponent {
                 if (!songs || songs.length === 0) {
                     root.navidromeStatus = status.notFound;
                     console.info("[MusicLyrics] ✗ Navidrome: no matching songs found for \"" + expectedTitle + "\"");
-                    root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                    root._fetchFromLrcApi(expectedTitle, expectedArtist);
                     return;
                 }
 
@@ -457,12 +473,12 @@ PluginComponent {
                 root.navidromeStatus = status.error;
                 console.warn("[MusicLyrics] Navidrome: failed to parse search response — " + e);
                 console.warn("[MusicLyrics] Navidrome: raw data: " + rawData.substring(0, 200));
-                root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                root._fetchFromLrcApi(expectedTitle, expectedArtist);
             }
         }, function (errMsg) {
             root.navidromeStatus = status.error;
             console.warn("[MusicLyrics] Navidrome: search request failed — " + errMsg);
-            root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+            root._fetchFromLrcApi(expectedTitle, expectedArtist);
         });
     }
 
@@ -476,7 +492,7 @@ PluginComponent {
             if (rawData.length === 0) {
                 root.navidromeStatus = status.error;
                 console.warn("[MusicLyrics] Navidrome: empty lyrics response (HTTP " + httpStatus + ")");
-                root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                root._fetchFromLrcApi(expectedTitle, expectedArtist);
                 return;
             }
             try {
@@ -485,7 +501,7 @@ PluginComponent {
                 if (!lyricsList || lyricsList.length === 0) {
                     root.navidromeStatus = status.notFound;
                     console.info("[MusicLyrics] ✗ Navidrome: no lyrics available for \"" + expectedTitle + "\"");
-                    root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                    root._fetchFromLrcApi(expectedTitle, expectedArtist);
                     return;
                 }
 
@@ -511,6 +527,7 @@ PluginComponent {
                     root.navidromeStatus = status.found;
                     root.lyricStatus = lyricState.synced;
                     root.lyricSource = lyricSrc.navidrome;
+                    root.lrcApiStatus = status.skippedFound;
                     root.lrclibStatus = status.skippedFound;
                     root.musixmatchStatus = status.skippedFound;
                     console.info("[MusicLyrics] ✓ Navidrome: synced lyrics found (" + lines.length + " lines) for \"" + expectedTitle + "\"");
@@ -520,23 +537,99 @@ PluginComponent {
                 } else if (unsynced && unsynced.line) {
                     root.navidromeStatus = status.skippedPlain;
                     console.info("[MusicLyrics] ✗ Navidrome: only plain lyrics found for \"" + expectedTitle + "\" (skipping, synced only)");
-                    root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                    root._fetchFromLrcApi(expectedTitle, expectedArtist);
                 } else {
                     root.navidromeStatus = status.notFound;
                     console.info("[MusicLyrics] ✗ Navidrome: lyrics structure empty for \"" + expectedTitle + "\"");
-                    root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                    root._fetchFromLrcApi(expectedTitle, expectedArtist);
                 }
             } catch (e) {
                 root.navidromeStatus = status.error;
                 console.warn("[MusicLyrics] Navidrome: failed to parse lyrics response — " + e);
                 console.warn("[MusicLyrics] Navidrome: raw data: " + rawData.substring(0, 200));
-                root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+                root._fetchFromLrcApi(expectedTitle, expectedArtist);
             }
         }, function (errMsg) {
             root.navidromeStatus = status.error;
             console.warn("[MusicLyrics] Navidrome: lyrics request failed — " + errMsg);
-            root._fetchFromMusixmatch(expectedTitle, expectedArtist);
+            root._fetchFromLrcApi(expectedTitle, expectedArtist);
         });
+    }
+
+    // -------------------------------------------------------------------------
+    // LrcApi fetch
+    // -------------------------------------------------------------------------
+
+    function _lrcApiHeaders() {
+        var headers = {
+            "Accept": "text/html, text/plain, */*"
+        };
+        if (lrcApiAuth !== "")
+            headers["Authorization"] = lrcApiAuth;
+        return headers;
+    }
+
+    function _fetchFromLrcApi(expectedTitle, expectedArtist) {
+        if (lyricStatus === lyricState.synced) {
+            lrcApiStatus = status.skippedFound;
+            console.info("[MusicLyrics] LrcApi: skipped (synced lyrics already found)");
+            return;
+        }
+
+        if (!_lrcApiConfigured) {
+            lrcApiStatus = status.skippedConfig;
+            console.info("[MusicLyrics] LrcApi: skipped (not configured)");
+            _fetchFromMusixmatch(expectedTitle, expectedArtist);
+            return;
+        }
+
+        lrcApiStatus = status.searching;
+        console.info("[MusicLyrics] LrcApi: searching for \"" + expectedTitle + "\" by " + expectedArtist);
+
+        var url = lrcApiUrl.replace(/\/+$/, "") + "/lyrics?title=" + encodeURIComponent(expectedTitle) + "&artist=" + encodeURIComponent(expectedArtist);
+        if (currentAlbum)
+            url += "&album=" + encodeURIComponent(currentAlbum);
+
+        root._cancelActiveFetch = _xhrGet(url, 15000, function (responseText, httpStatus) {
+            var rawData = (responseText || "").trim();
+            console.log("[MusicLyrics] LrcApi: response length = " + rawData.length);
+            if (httpStatus === 404) {
+                root._setLrcApiNotFound(status.notFound);
+                console.info("[MusicLyrics] ✗ LrcApi: no lyrics found for \"" + expectedTitle + "\"");
+                return;
+            }
+            if (httpStatus >= 400) {
+                root._setLrcApiNotFound(status.error);
+                console.warn("[MusicLyrics] LrcApi: request failed with HTTP " + httpStatus);
+                return;
+            }
+            if (rawData.length === 0) {
+                root._setLrcApiNotFound(status.notFound);
+                console.info("[MusicLyrics] ✗ LrcApi: no lyrics found for \"" + expectedTitle + "\"");
+                return;
+            }
+
+            var lines = root.parseLrc(rawData);
+            if (lines.length > 0) {
+                root.lyricsLines = lines;
+                root.lrcApiStatus = status.found;
+                root.musixmatchStatus = status.skippedFound;
+                root.lrclibStatus = status.skippedFound;
+                root.lyricStatus = lyricState.synced;
+                root.lyricSource = lyricSrc.lrcApi;
+                console.info("[MusicLyrics] ✓ LrcApi: synced lyrics found (" + lines.length + " lines) for \"" + expectedTitle + "\"");
+                root._cancelActiveFetch = null;
+                if (root.cachingEnabled)
+                    root.writeToCache(expectedTitle, expectedArtist, lines, lyricSrc.lrcApi);
+                return;
+            }
+
+            root._setLrcApiNotFound(status.skippedPlain);
+            console.info("[MusicLyrics] ✗ LrcApi: response was not synced lyrics for \"" + expectedTitle + "\" (skipping)");
+        }, function (errMsg) {
+            root._setLrcApiNotFound(status.error);
+            console.warn("[MusicLyrics] LrcApi: request failed — " + errMsg);
+        }, _lrcApiHeaders());
     }
 
     // -------------------------------------------------------------------------
@@ -946,7 +1039,7 @@ PluginComponent {
                     }
 
                     StyledText {
-                        text: root.lyricSource === lyricSrc.navidrome ? "Navidrome" : root.lyricSource === lyricSrc.lrclib ? "lrclib" : root.lyricSource === lyricSrc.musixmatch ? "Musixmatch" : ""
+                        text: root.lyricSource === lyricSrc.navidrome ? "Navidrome" : root.lyricSource === lyricSrc.lrcApi ? "LrcApi" : root.lyricSource === lyricSrc.lrclib ? "lrclib" : root.lyricSource === lyricSrc.musixmatch ? "Musixmatch" : ""
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.background
                         anchors.verticalCenter: parent.verticalCenter
@@ -1229,6 +1322,13 @@ PluginComponent {
                             icon: "cloud"
                             label: "Navidrome"
                             sourceStatus: root.navidromeStatus
+                        }
+
+                        SourceCard {
+                            width: parent.width
+                            icon: "dns"
+                            label: "LrcApi"
+                            sourceStatus: root.lrcApiStatus
                         }
 
                         SourceCard {

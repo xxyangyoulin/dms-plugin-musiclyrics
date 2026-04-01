@@ -54,6 +54,43 @@ PluginSettings {
 
     StyledRect {
         width: parent.width
+        height: lrcApiColumn.implicitHeight + Theme.spacingL * 2
+        radius: Theme.cornerRadius
+        color: Theme.surfaceContainerHigh
+
+        Column {
+            id: lrcApiColumn
+            anchors.fill: parent
+            anchors.margins: Theme.spacingL
+            spacing: Theme.spacingM
+
+            StyledText {
+                text: "LrcApi"
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
+            }
+
+            StringSetting {
+                settingKey: "lrcApiUrl"
+                label: "Server URL"
+                description: "Local lyrics API endpoint."
+                placeholder: "http://127.0.0.1:28883"
+                defaultValue: "http://127.0.0.1:28883"
+            }
+
+            StringSetting {
+                settingKey: "lrcApiAuth"
+                label: "Authorization"
+                description: "Sent as the Authorization header."
+                placeholder: "api"
+                defaultValue: "api"
+            }
+        }
+    }
+
+    StyledRect {
+        width: parent.width
         height: behaviorColumn.implicitHeight + Theme.spacingL * 2
         radius: Theme.cornerRadius
         color: Theme.surfaceContainerHigh
