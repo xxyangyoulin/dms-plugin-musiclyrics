@@ -16,6 +16,7 @@ PluginComponent {
     property string lrcApiUrl: pluginData.lrcApiUrl ?? "http://127.0.0.1:28883"
     property string lrcApiAuth: pluginData.lrcApiAuth ?? "api"
     property bool cachingEnabled: pluginData.cachingEnabled ?? true
+    property bool compactBarPill: pluginData.compactBarPill ?? false
 
     readonly property MprisPlayer activePlayer: MprisController.activePlayer
     property var allPlayers: MprisController.availablePlayers
@@ -1017,7 +1018,7 @@ PluginComponent {
     Component {
         id: hPillComponent
         Row {
-            spacing: Theme.spacingS
+            spacing: root.compactBarPill ? 0 : Theme.spacingS
 
             Rectangle {
                 width: chipContent.implicitWidth + Theme.spacingS * 2
@@ -1025,6 +1026,7 @@ PluginComponent {
                 radius: 12
                 anchors.verticalCenter: parent.verticalCenter
                 color: Theme.primary
+                visible: !root.compactBarPill
 
                 Row {
                     id: chipContent

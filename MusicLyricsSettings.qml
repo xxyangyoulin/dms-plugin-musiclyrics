@@ -49,6 +49,13 @@ PluginSettings {
                 description: "Save downloaded lyrics locally to speed up loading times and reduce network requests. Lyrics files will be stored under ~/.cache/musicLyrics directories."
                 defaultValue: true
             }
+
+            ToggleSetting {
+                settingKey: "compactBarPill"
+                label: "Compact Bar Pill"
+                description: "Hide the source chip in the horizontal bar pill and only show the lyric text."
+                defaultValue: false
+            }
         }
     }
 
